@@ -128,9 +128,10 @@ function renderHeader() {
 
 function run(cmd, args = [], opts = {}) {
   console.log(`\n${c('cyan', '▶')}  ${cmd} ${args.join(' ')}\n${'─'.repeat(60)}`);
-  const result = spawnSync(cmd, args, { stdio: 'inherit', shell: false, cwd: ROOT, ...opts });
+  const result = spawnSync(cmd, args, { stdio: 'inherit', shell: true, cwd: ROOT, ...opts });
   const ok = result.status === 0;
-  console.log(`${'─'.repeat(60)}\n${ok ? c('green', '✅  Done') : c('red', '❌  Failed (exit ' + result.status + ')')}`);
+  const exitInfo = result.status !== null ? `exit ${result.status}` : result.error ? result.error.message : 'killed by signal';
+  console.log(`${'─'.repeat(60)}\n${ok ? c('green', '✅  Done') : c('red', '❌  Failed (' + exitInfo + ')')}`);
   return ok;
 }
 
