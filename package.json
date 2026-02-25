@@ -1,15 +1,22 @@
 {
   "name": "codex-rebuild",
   "productName": "Codex",
+
   "version": "1.0.4",
+  "codexBuildNumber": "517",
+  "codexBuildFlavor": "prod",
+
   "type": "commonjs",
   "description": "Codex Electron App - Cross-platform Build",
   "main": "src/.vite/build/main.js",
   "scripts": {
+    "version:set": "node scripts/set-version.js",
+
     "start": "node scripts/start-dev.js",
     "dev": "node scripts/start-dev.js",
 
     "menu": "node scripts/dev-menu.js",
+    "tui": "node scripts/dev-menu.js",
     "update-src": "node scripts/update-from-dmg.js",
     "patch": "node scripts/patch-copyright.js && node scripts/patch-i18n.js && node scripts/patch-process-polyfill.js && node scripts/patch-chromium-flags.js && node scripts/patch-css-containment.js",
 
@@ -71,7 +78,5 @@
   "optionalDependencies": {
     "@cometix/codex": "latest",
     "electron-liquid-glass": "1.1.1"
-  },
-  "codexBuildFlavor": "prod",
-  "codexBuildNumber": "517"
+  }
 }
