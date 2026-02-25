@@ -1,28 +1,20 @@
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 const path = require("path");
 const fs = require("fs");
+const { TARGET_TRIPLE_MAP } = require("./scripts/constants");
 
-// 平台架构 -> @cometix/codex target triple 映射
-const TARGET_TRIPLE_MAP = {
-  "darwin-arm64": "aarch64-apple-darwin",
-  "darwin-x64": "x86_64-apple-darwin",
-  "linux-arm64": "aarch64-unknown-linux-musl",
-  "linux-x64": "x86_64-unknown-linux-musl",
-  "win32-x64": "x86_64-pc-windows-msvc",
-};
-
-// 获取 codex 二进制路径（优先本地，其次 npm）
+// Resolve codex binary path (local resources/bin takes priority, then npm)
 function getCodexBinaryPath(platform, arch) {
   const platformArch = `${platform}-${arch}`;
   const binaryName = platform === "win32" ? "codex.exe" : "codex";
 
-  // 路径1: 本地 resources/bin/
+  // Path 1: local resources/bin/
   const localPath = path.join(__dirname, "resources", "bin", platformArch, binaryName);
   if (fs.existsSync(localPath)) {
     return localPath;
   }
 
-  // 路径2: npm @cometix/codex/vendor/
+  // Path 2: npm @cometix/codex/vendor/
   const targetTriple = TARGET_TRIPLE_MAP[platformArch];
   if (targetTriple) {
     const npmPath = path.join(
@@ -47,25 +39,26 @@ module.exports = {
       unpack: "{**/*.node,**/node-pty/build/Release/spawn-helper,**/node-pty/prebuilds/*/spawn-helper}",
     },
     extraResource: ["./resources/notification.wav"],
-    // 第一层：文件白名单 — 只放行运行时必要的文件，排除 Codex.app/、.github/ 等膨胀源
+    // Layer 1: file allowlist — only pass through files required at runtime, excluding Codex.app/, .github/, etc.
     ignore: (filePath) => {
-      // 根目录本身必须放行
+      // The root directory itself must always be allowed
       if (filePath === "") return false;
 
-      // 白名单前缀：运行时需要的顶层路径（对标官方 asar 结构）
-      // ignore 函数会收到目录和文件两种路径，需要同时匹配完整路径和中间目录
+      // Allowed prefixes: top-level paths needed at runtime (mirrors the official asar layout).
+      // The ignore callback receives both directory and file paths, so we must match
+      // both the full path and any intermediate parent directory.
       const allowedPrefixes = [
-        "/src/.vite/build", // 编译后的主进程代码
-        "/src/webview",     // 前端 UI 资源
-        "/src/skills",      // 技能目录
-        "/node_modules",    // 本项目自身的原生依赖（afterPrune 阶段裁剪至仅保留原生模块）
+        "/src/.vite/build", // compiled main-process code
+        "/src/webview",     // frontend UI assets
+        "/src/skills",      // skills directory
+        "/node_modules",    // native dependencies (pruned to native-only modules in afterPrune)
       ];
 
-      // 精确匹配 package.json
+      // Exact match for package.json
       if (filePath === "/package.json") return false;
 
-      // 检查：filePath 是否是某个白名单路径的前缀（即父目录），
-      // 或者 filePath 是否在某个白名单路径之下（即子文件/子目录）
+      // Check whether filePath is a parent of an allowed prefix (ancestor directory),
+      // or is located under an allowed prefix (child file/directory)
       for (const prefix of allowedPrefixes) {
         if (prefix.startsWith(filePath) || filePath.startsWith(prefix)) {
           return false;
@@ -74,7 +67,7 @@ module.exports = {
 
       return true;
     },
-    // macOS 签名配置
+    // macOS code signing
     osxSign: process.env.SKIP_SIGN
       ? undefined
       : {
@@ -88,7 +81,7 @@ module.exports = {
           appleIdPassword: process.env.APPLE_PASSWORD,
           teamId: process.env.APPLE_TEAM_ID,
         },
-    // Windows 元数据
+    // Windows metadata
     win32metadata: {
       CompanyName: "OpenAI",
       ProductName: "Codex",
@@ -172,17 +165,17 @@ module.exports = {
       name: "@electron-forge/plugin-fuses",
       config: {
         version: FuseVersion.V1,
-        [FuseV1Options.RunAsNode]: true,
-        [FuseV1Options.EnableCookieEncryption]: false,
-        [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: true,
-        [FuseV1Options.EnableNodeCliInspectArguments]: true,
-        [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
-        [FuseV1Options.OnlyLoadAppFromAsar]: false,
+        [FuseV1Options.RunAsNode]: false,
+        [FuseV1Options.EnableCookieEncryption]: true,
+        [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+        [FuseV1Options.EnableNodeCliInspectArguments]: false,
+        [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+        [FuseV1Options.OnlyLoadAppFromAsar]: true,
       },
     },
   ],
   hooks: {
-    // 第二层：原生模块平台筛选 — Forge 裁剪 devDependencies 后，进一步清理非目标平台产物
+    // Layer 2: native module platform filtering — after Forge prunes devDependencies, further clean non-target platform artifacts
     packageAfterPrune: async (
       config,
       buildPath,
@@ -195,7 +188,7 @@ module.exports = {
         `\n🧹 Pruning non-target platform files for ${platformArch}...`,
       );
 
-      // --- 辅助函数 ---
+      // --- Helper functions ---
       const removeDirRecursive = (dirPath) => {
         if (fs.existsSync(dirPath)) {
           fs.rmSync(dirPath, { recursive: true, force: true });
@@ -212,7 +205,7 @@ module.exports = {
         }
       };
 
-      // 递归遍历目录收集文件
+      // Recursively walk a directory and invoke callback for each file
       const walkDir = (dir, callback) => {
         if (!fs.existsSync(dir)) return;
         const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -228,38 +221,38 @@ module.exports = {
 
       const nodeModulesPath = path.join(buildPath, "node_modules");
 
-      // 0. 原生模块白名单 — Vite 已将所有纯 JS 依赖 bundle 进 main.js，
-      //    node_modules 只需保留不能 bundle 的原生模块及其运行时 binding 辅助包
-      //    对标官方构建的 7 个包：better-sqlite3, bindings, file-uri-to-path,
-      //    node-addon-api, node-gyp-build, node-pty, electron-liquid-glass
+      // 0. Native module allowlist — Vite has already bundled all pure-JS deps into main.js,
+      //    so node_modules only needs to keep native modules and their runtime binding helpers.
+      //    Mirrors the 7 packages in the official build: better-sqlite3, bindings,
+      //    file-uri-to-path, node-addon-api, node-gyp-build, node-pty, electron-liquid-glass
       const allowedModules = new Set([
-        "better-sqlite3",        // SQLite 原生模块
-        "bindings",              // 原生模块 .node 文件定位器（better-sqlite3 运行时 require）
-        "file-uri-to-path",      // bindings 的运行时依赖
-        "node-addon-api",        // N-API 辅助（better-sqlite3 运行时需要）
-        "node-pty",              // 终端模拟原生模块
+        "better-sqlite3",        // SQLite native module
+        "bindings",              // .node file locator for native modules (runtime require by better-sqlite3)
+        "file-uri-to-path",      // runtime dependency of bindings
+        "node-addon-api",        // N-API helper (needed by better-sqlite3 at runtime)
+        "node-pty",              // terminal emulation native module
+        "node-gyp-build",        // node-pty runtime require (all platforms)
       ]);
 
-      // 平台条件依赖
+      // Platform-conditional dependencies
       if (platform === "darwin") {
-        allowedModules.add("electron-liquid-glass"); // macOS 液态玻璃效果
-        allowedModules.add("node-gyp-build");        // electron-liquid-glass 运行时 require
+        allowedModules.add("electron-liquid-glass"); // macOS liquid glass effect
       }
 
       console.log(
         `   📋 Native module whitelist: ${allowedModules.size} packages`,
       );
 
-      // 删除不在白名单中的所有 node_modules 包
+      // Remove all node_modules packages that are not in the allowlist
       if (fs.existsSync(nodeModulesPath)) {
         let removedPkgCount = 0;
         const entries = fs.readdirSync(nodeModulesPath);
         for (const entry of entries) {
-          // 跳过隐藏文件 (.bin, .package-lock.json)
+          // Skip hidden entries (.bin, .package-lock.json)
           if (entry.startsWith(".")) continue;
 
           if (entry.startsWith("@")) {
-            // scoped 包：逐个检查子目录
+            // Scoped package: check each sub-directory individually
             const scopePath = path.join(nodeModulesPath, entry);
             if (!fs.statSync(scopePath).isDirectory()) continue;
             const scopedEntries = fs.readdirSync(scopePath);
@@ -270,7 +263,7 @@ module.exports = {
                 removedPkgCount++;
               }
             }
-            // scope 目录为空则删除
+            // Remove the scope directory if it is now empty
             if (fs.readdirSync(scopePath).length === 0) {
               removeDirRecursive(scopePath);
             }
@@ -286,13 +279,13 @@ module.exports = {
         );
       }
 
-      // 清理 .bin 目录（不需要 bin link）
+      // Remove the .bin directory (bin symlinks are not needed at runtime)
       const binDir = path.join(nodeModulesPath, ".bin");
       if (fs.existsSync(binDir)) {
         removeDirRecursive(binDir);
       }
 
-      // 1. 清理 node-pty prebuilds 中非目标平台的目录
+      // 1. Remove non-target-platform directories from node-pty prebuilds
       const nodePtyPrebuilds = path.join(
         nodeModulesPath,
         "node-pty",
@@ -307,14 +300,14 @@ module.exports = {
         }
       }
 
-      // 2. 删除所有 .pdb 调试符号文件（Windows 调试用，运行时不需要）
+      // 2. Delete all .pdb debug symbol files (Windows debugging only, not needed at runtime)
       walkDir(nodeModulesPath, (filePath) => {
         if (filePath.endsWith(".pdb")) {
           removeFile(filePath);
         }
       });
 
-      // 3. 清理 electron-liquid-glass 中非目标平台的 prebuilds
+      // 3. Remove non-target-platform prebuilds from electron-liquid-glass
       const liquidGlassPrebuilds = path.join(
         nodeModulesPath,
         "electron-liquid-glass",
@@ -329,13 +322,13 @@ module.exports = {
         }
       }
 
-      // 4. 深度清理 better-sqlite3 — 只保留 build/Release/*.node、lib/、package.json、binding.gyp
+      // 4. Deep-clean better-sqlite3 — keep only build/Release/*.node, lib/, package.json, binding.gyp
       const betterSqlitePath = path.join(nodeModulesPath, "better-sqlite3");
       if (fs.existsSync(betterSqlitePath)) {
-        // 删除编译源码和 SQLite 源码
+        // Remove compiled source and SQLite source
         removeDirRecursive(path.join(betterSqlitePath, "deps"));
         removeDirRecursive(path.join(betterSqlitePath, "src"));
-        // 清理 build/ 中除 Release/*.node 以外的所有文件
+        // Remove everything in build/ except Release/*.node
         const bsBuild = path.join(betterSqlitePath, "build");
         if (fs.existsSync(bsBuild)) {
           const bsEntries = fs.readdirSync(bsBuild);
@@ -349,7 +342,7 @@ module.exports = {
               }
             }
           }
-          // Release 中只保留 .node 文件
+          // Inside Release, keep only .node files
           const bsRelease = path.join(bsBuild, "Release");
           if (fs.existsSync(bsRelease)) {
             walkDir(bsRelease, (fp) => {
@@ -359,30 +352,30 @@ module.exports = {
         }
       }
 
-      // 5. 深度清理 node-pty — 按目标平台差分清理
+      // 5. Deep-clean node-pty — platform-specific differential cleanup
       const nodePtyPath = path.join(nodeModulesPath, "node-pty");
       if (fs.existsSync(nodePtyPath)) {
-        // 删除编译源码、winpty deps、scripts、typings、测试文件
+        // Remove compiled source, winpty deps, scripts, typings, and test files
         removeDirRecursive(path.join(nodePtyPath, "src"));
         removeDirRecursive(path.join(nodePtyPath, "deps"));
         removeDirRecursive(path.join(nodePtyPath, "scripts"));
         removeDirRecursive(path.join(nodePtyPath, "typings"));
 
-        // third_party/conpty/ — Windows 运行时需要，其他平台全部删除
+        // third_party/conpty/ — required on Windows at runtime; remove entirely on all other platforms
         const thirdPartyPath = path.join(nodePtyPath, "third_party");
         if (platform === "win32") {
-          // Windows：只保留目标架构的 conpty 二进制
+          // Windows: keep only the conpty binaries for the target arch
           const conptyBase = path.join(
             thirdPartyPath,
             "conpty",
           );
           if (fs.existsSync(conptyBase)) {
-            // 遍历版本目录（如 1.23.251008001/）
+            // Iterate version directories (e.g. 1.23.251008001/)
             for (const ver of fs.readdirSync(conptyBase)) {
               const verPath = path.join(conptyBase, ver);
               if (!fs.statSync(verPath).isDirectory()) continue;
               for (const platDir of fs.readdirSync(verPath)) {
-                // 目录格式: win10-x64, win10-arm64
+                // Directory format: win10-x64, win10-arm64
                 if (!platDir.includes(arch)) {
                   removeDirRecursive(path.join(verPath, platDir));
                 }
@@ -390,11 +383,11 @@ module.exports = {
             }
           }
         } else {
-          // 非 Windows：conpty 完全不需要
+          // Non-Windows: conpty is not needed at all
           removeDirRecursive(thirdPartyPath);
         }
 
-        // bin/{platform}-{arch}-{abi}/ — 只保留目标平台的 prebuild
+        // bin/{platform}-{arch}-{abi}/ — keep only the target platform's prebuild
         const binPath = path.join(nodePtyPath, "bin");
         if (fs.existsSync(binPath)) {
           for (const dir of fs.readdirSync(binPath)) {
@@ -403,7 +396,7 @@ module.exports = {
             }
           }
         }
-        // 清理 build/ 中除 Release/{pty.node, spawn-helper} 以外的所有内容
+        // Remove everything in build/ except Release/{pty.node, spawn-helper}
         const nptBuild = path.join(nodePtyPath, "build");
         if (fs.existsSync(nptBuild)) {
           const nptEntries = fs.readdirSync(nptBuild);
@@ -417,7 +410,7 @@ module.exports = {
               }
             }
           }
-          // Release 中只保留 pty.node 和 spawn-helper
+          // Inside Release, keep only pty.node and spawn-helper
           const nptRelease = path.join(nptBuild, "Release");
           if (fs.existsSync(nptRelease)) {
             const releaseEntries = fs.readdirSync(nptRelease, {
@@ -438,15 +431,15 @@ module.exports = {
             }
           }
         }
-        // 删除 node_modules/node-pty/node_modules（嵌套的 node-addon-api 构建产物）
+        // Remove node_modules/node-pty/node_modules (nested node-addon-api build artifacts)
         removeDirRecursive(path.join(nodePtyPath, "node_modules"));
-        // 删除测试文件
+        // Remove test files
         walkDir(path.join(nodePtyPath, "lib"), (fp) => {
           if (fp.endsWith(".test.js")) removeFile(fp);
         });
       }
 
-      // 6. 清理所有 node_modules 下的非运行时文件
+      // 6. Remove all non-runtime files from node_modules
       const junkPatterns = [
         /\.md$/i,
         /LICENSE(\..*)?$/i,
@@ -467,24 +460,24 @@ module.exports = {
         /Gulpfile\.js$/,
         /\.DS_Store$/,
         /\.map$/,
-        /\.ts$/,           // TypeScript 源文件（保留 .d.ts）
-        /\.cc$/,           // C++ 源文件
+        /\.ts$/,           // TypeScript source files (keep .d.ts)
+        /\.cc$/,           // C++ source files
         /\.cpp$/,
         /\.hpp$/,
-        /\.h$/,            // C/C++ 头文件
-        /\.c$/,            // C 源文件
-        /\.o$/,            // 编译中间产物
-        /\.gyp$/,          // gyp 构建文件
+        /\.h$/,            // C/C++ header files
+        /\.c$/,            // C source files
+        /\.o$/,            // compiled intermediate objects
+        /\.gyp$/,          // gyp build files
         /\.gypi$/,
-        /\.mk$/,           // Makefile 片段
-        /\.stamp$/,        // 构建 stamp
-        /\.d$/,            // 依赖跟踪文件
+        /\.mk$/,           // Makefile fragments
+        /\.stamp$/,        // build stamp files
+        /\.d$/,            // dependency tracking files
       ];
 
       let cleanedCount = 0;
       walkDir(nodeModulesPath, (filePath) => {
         const basename = path.basename(filePath);
-        // 保留 .d.ts 和 .node 文件
+        // Always keep .d.ts and .node files
         if (basename.endsWith(".d.ts") || basename.endsWith(".node")) return;
         if (junkPatterns.some((p) => p.test(basename))) {
           fs.unlinkSync(filePath);
@@ -497,7 +490,7 @@ module.exports = {
       );
     },
 
-    // 打包后复制对应平台的 codex 二进制
+    // After packaging: copy the platform-specific codex binary
     packageAfterCopy: async (config, buildPath, electronVersion, platform, arch) => {
       console.log(`\n📦 Packaging for ${platform}-${arch}...`);
       console.log(`   buildPath: ${buildPath}`);
@@ -505,7 +498,7 @@ module.exports = {
       const codexSrc = getCodexBinaryPath(platform, arch);
       const binaryName = platform === "win32" ? "codex.exe" : "codex";
 
-      // buildPath 指向 app 目录，其父目录即为 Resources (macOS) 或 resources (其他)
+      // buildPath points to the app directory; its parent is Resources (macOS) or resources (other platforms)
       const resourcesPath = path.dirname(buildPath);
       const codexDest = path.join(resourcesPath, binaryName);
 
@@ -514,10 +507,7 @@ module.exports = {
         fs.chmodSync(codexDest, 0o755);
         console.log(`✅ Copied codex binary: ${codexSrc} -> ${codexDest}`);
       } else {
-        console.error(`❌ Codex binary not found for ${platform}-${arch}`);
-        console.error(`   Tried: resources/bin/${platform}-${arch}/${binaryName}`);
-        console.error(`   Tried: node_modules/@cometix/codex/vendor/.../codex/${binaryName}`);
-        process.exit(1);
+        throw new Error(`Codex binary not found for ${platform}-${arch}`);
       }
     },
   },

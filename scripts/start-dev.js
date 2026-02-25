@@ -12,14 +12,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-
-const TARGET_TRIPLE_MAP = {
-  'darwin-x64': 'x86_64-apple-darwin',
-  'darwin-arm64': 'aarch64-apple-darwin',
-  'linux-x64': 'x86_64-unknown-linux-musl',
-  'linux-arm64': 'aarch64-unknown-linux-musl',
-  'win32-x64': 'x86_64-pc-windows-msvc',
-};
+const { TARGET_TRIPLE_MAP } = require('./constants');
 
 function resolveCodexCli(platform, arch) {
   const platformArch = `${platform}-${arch}`;
@@ -86,10 +79,13 @@ const child = spawn(electronBin, ['.'], {
   },
 });
 
+process.on('SIGINT', () => child.kill('SIGINT'));
+process.on('SIGTERM', () => child.kill('SIGTERM'));
+
 child.on('close', (code, signal) => {
   if (signal) {
     console.error(`Child process terminated by signal: ${signal}`);
     process.exit(1);
   }
-  process.exit(code ?? 1);
+  process.exit(code ?? 0);
 });

@@ -131,6 +131,12 @@ function runElectronRebuild() {
     stdio: "inherit",
     shell: true,
     cwd: ROOT,
+    env: {
+      ...process.env,
+      // Suppress DEP0147/DEP0187 emitted by @electron/node-gyp's vendored tar
+      // and find-visualstudio.js — these are third-party issues we cannot patch.
+      NODE_NO_WARNINGS: "1",
+    },
   });
 
   if (result.status !== 0) {

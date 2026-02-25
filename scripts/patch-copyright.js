@@ -1,65 +1,45 @@
 /**
- * 构建后补丁脚本：修改版权信息
+ * Post-build patch: update copyright text
  *
- * 使用 AST 精确定位 `setAboutPanelOptions({ copyright: "© OpenAI" })`
- * 并将版权文本替换为自定义值。
+ * Uses AST to precisely locate `setAboutPanelOptions({ copyright: "© OpenAI" })`
+ * and replaces the copyright text with a custom value.
  *
- * 用法：
- *   node scripts/patch-copyright.js          # 执行 patch
- *   node scripts/patch-copyright.js --check  # 仅检查匹配情况，不修改
+ * Usage:
+ *   node scripts/patch-copyright.js          # apply patch
+ *   node scripts/patch-copyright.js --check  # dry-run check only, no modifications
  */
 const fs = require("fs");
 const path = require("path");
 const { parse } = require("acorn");
+const { walk } = require("./ast-utils");
 
 // ──────────────────────────────────────────────
-//  配置
+//  Config
 // ──────────────────────────────────────────────
 
 const OLD_COPYRIGHT = "\u00A9 OpenAI"; // © OpenAI  (original value from DMG source)
 const NEW_COPYRIGHT = "PORTED by KAHME248";
 
 // ──────────────────────────────────────────────
-//  第 1 层：AST 引擎 — 解析 + 递归遍历
-// ──────────────────────────────────────────────
-
-function walk(node, visitor) {
-  if (!node || typeof node !== "object") return;
-  visitor(node);
-  for (const key of Object.keys(node)) {
-    const child = node[key];
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        if (item && typeof item.type === "string") {
-          walk(item, visitor);
-        }
-      }
-    } else if (child && typeof child.type === "string") {
-      walk(child, visitor);
-    }
-  }
-}
-
-// ──────────────────────────────────────────────
-//  第 2 层：声明式 Patch 规则
+//  Layer 2: Declarative patch rules
 // ──────────────────────────────────────────────
 
 const RULES = [
   {
     id: "copyright",
-    description: `copyright 文本: "${OLD_COPYRIGHT}" → "${NEW_COPYRIGHT}"`,
+    description: `copyright text: "${OLD_COPYRIGHT}" → "${NEW_COPYRIGHT}"`,
     /**
-     * 匹配条件：
-     *   Property 节点:
-     *     key.name === "copyright" 或 key.value === "copyright"
-     *     value 是 Literal，且 value.value === OLD_COPYRIGHT
+     * Match condition:
+     *   Property node:
+     *     key.name === "copyright" or key.value === "copyright"
+     *     value is a Literal with value === OLD_COPYRIGHT
      *
-     * 替换目标：value 节点的 Literal（含引号）
+     * Replacement target: the Literal node of the value (including quotes)
      */
     match(node) {
       if (node.type !== "Property") return null;
 
-      // key 匹配 "copyright"
+      // key matches "copyright"
       const keyName =
         node.key.type === "Identifier"
           ? node.key.name
@@ -68,7 +48,7 @@ const RULES = [
             : null;
       if (keyName !== "copyright") return null;
 
-      // value 是 Literal 且内容为旧版权
+      // value is a Literal with the old copyright text
       if (
         node.value.type === "Literal" &&
         node.value.value === OLD_COPYRIGHT
@@ -87,35 +67,35 @@ const RULES = [
 ];
 
 // ──────────────────────────────────────────────
-//  第 3 层：文件定位 + 外科替换
+//  Layer 3: File location + surgical replacement
 // ──────────────────────────────────────────────
 
 /**
- * 自动定位 main bundle 文件
- * 优先匹配 main-{hash}.js，回退到 main.js
+ * Auto-locate the main bundle file.
+ * Prefers main-{hash}.js, falls back to main.js.
  */
 function locateBundle() {
   const buildDir = path.join(__dirname, "..", "src", ".vite", "build");
   if (!fs.existsSync(buildDir)) {
-    console.error("❌ 构建目录不存在:", buildDir);
+    console.error("❌ Build directory not found:", buildDir);
     process.exit(1);
   }
 
   const files = fs.readdirSync(buildDir).filter((f) => /^main(-[^.]+)?\.js$/.test(f));
 
   if (files.length === 0) {
-    console.error("❌ 未找到 main*.js bundle 文件");
+    console.error("❌ No main*.js bundle file found");
     process.exit(1);
   }
 
-  // 优先选择带 hash 的文件（main-xxx.js），回退到 main.js
+  // Prefer the hashed file (main-xxx.js), fall back to main.js
   const hashed = files.find((f) => f !== "main.js");
   const target = hashed || files[0];
   return path.join(buildDir, target);
 }
 
 /**
- * 收集所有规则命中的 patch 点
+ * Collect all patch locations matched by the rules
  */
 function collectPatches(ast) {
   const patches = [];
@@ -139,7 +119,7 @@ function collectPatches(ast) {
 }
 
 /**
- * 扫描所有匹配情况（用于 --check 模式）
+ * Scan all matches (used in --check mode)
  */
 function scanMatches(ast, source) {
   const CONTEXT_CHARS = 50;
@@ -160,7 +140,7 @@ function scanMatches(ast, source) {
     const ctxStart = Math.max(0, node.start - CONTEXT_CHARS);
     const ctxEnd = Math.min(source.length, node.end + CONTEXT_CHARS);
 
-    // 判断是否会被规则命中
+    // Check whether a rule would patch this node
     let wouldPatch = false;
     for (const rule of RULES) {
       if (rule.match(node)) {
@@ -183,7 +163,7 @@ function scanMatches(ast, source) {
 }
 
 // ──────────────────────────────────────────────
-//  主流程
+//  Main
 // ──────────────────────────────────────────────
 
 function main() {
@@ -191,10 +171,10 @@ function main() {
   const bundlePath = locateBundle();
   const relPath = path.relative(path.join(__dirname, ".."), bundlePath);
 
-  console.log(`📄 目标文件: ${relPath}`);
+  console.log(`📄 Target file: ${relPath}`);
 
   const source = fs.readFileSync(bundlePath, "utf-8");
-  console.log(`📏 文件大小: ${(source.length / 1024 / 1024).toFixed(1)} MB`);
+  console.log(`📏 File size: ${(source.length / 1024 / 1024).toFixed(1)} MB`);
 
   const t0 = Date.now();
   const ast = parse(source, {
@@ -202,51 +182,51 @@ function main() {
     sourceType: "module",
   });
   const parseTime = Date.now() - t0;
-  console.log(`🔍 AST 解析: ${parseTime}ms`);
+  console.log(`🔍 AST parse: ${parseTime}ms`);
 
-  // ── --check 模式：展示匹配情况，不修改文件 ──
+  // ── --check mode: show matches, do not modify ──
   if (isCheck) {
-    console.log("\n── 匹配检查 (只读) ──\n");
+    console.log("\n── Match check (read-only) ──\n");
     const { matches } = scanMatches(ast, source);
 
     if (matches.length === 0) {
-      console.log("⚠️  未找到任何 copyright 属性节点");
+      console.log("⚠️  No copyright property nodes found");
       return;
     }
 
     for (let i = 0; i < matches.length; i++) {
       const m = matches[i];
-      const tag = m.wouldPatch ? "🔧 待 patch" : "── 跳过";
+      const tag = m.wouldPatch ? "🔧 to patch" : "── skip";
       console.log(`  #${i + 1}  [${m.ruleId}]  ${tag}`);
-      console.log(`      位置: ${m.position}  当前值: "${m.currentValue}"`);
-      console.log(`      节点: ${m.snippet}`);
-      console.log(`      上下文: ...${m.context}...`);
+      console.log(`      Position: ${m.position}  Current value: "${m.currentValue}"`);
+      console.log(`      Node: ${m.snippet}`);
+      console.log(`      Context: ...${m.context}...`);
       console.log();
     }
 
     const patchable = matches.filter((m) => m.wouldPatch).length;
     console.log(
-      `📊 共 ${matches.length} 处匹配, ${patchable} 处待 patch, ${matches.length - patchable} 处跳过`
+      `📊 ${matches.length} match(es), ${patchable} to patch, ${matches.length - patchable} skipped`
     );
     return;
   }
 
-  // ── patch 模式 ──
+  // ── patch mode ──
   const { patches, details } = collectPatches(ast);
 
   if (patches.length === 0) {
     const { matches } = scanMatches(ast, source);
     if (matches.length > 0) {
       console.log(
-        `ℹ️  版权信息已是最新 (${matches.length} 处匹配, 0 处待 patch), 无需修改`
+        `ℹ️  Copyright is already up to date (${matches.length} match(es), 0 to patch), no changes needed`
       );
     } else {
-      console.warn("⚠️  未找到 copyright 属性节点");
+      console.warn("⚠️  No copyright property nodes found");
     }
     return;
   }
 
-  // 按 start 降序排列，避免偏移漂移
+  // Sort descending by start offset to avoid drift
   patches.sort((a, b) => b.start - a.start);
 
   let code = source;
@@ -257,9 +237,9 @@ function main() {
   fs.writeFileSync(bundlePath, code);
 
   for (const d of details) {
-    console.log(`  ✏️  位置 ${d.position}: ${d.change}`);
+    console.log(`  ✏️  Position ${d.position}: ${d.change}`);
   }
-  console.log(`\n✅ 版权信息已更新: ${NEW_COPYRIGHT}`);
+  console.log(`\n✅ Copyright updated: ${NEW_COPYRIGHT}`);
 }
 
 main();

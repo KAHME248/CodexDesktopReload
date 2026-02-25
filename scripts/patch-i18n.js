@@ -1,78 +1,57 @@
 /**
- * 构建后补丁脚本：解锁 i18n 多语言功能
+ * Post-build patch: unlock i18n multi-language support
  *
- * Codex 内置完整的 react-intl 多语言体系（59 语言、1,598 条翻译），
- * 但被 Statsig feature gate `codex-i18n` 控制。
+ * Codex ships a full react-intl i18n system (59 languages, 1,598 translations),
+ * but it is gated behind a Statsig feature gate `codex-i18n`.
  *
- * 即使修改 .get() 的默认值也不够 —— 当 Statsig 后端可达时，
- * 服务端返回的 enable_i18n=false 会覆盖默认值。
+ * Changing .get()'s default value is not enough — when the Statsig backend is
+ * reachable, the server-side enable_i18n=false overrides the default.
  *
- * 因此本脚本直接将整个 gate 调用 `?.get("enable_i18n", ...)` 替换为 `!0`，
- * 彻底绕过 Statsig 控制。
+ * This script replaces the entire gate call `?.get("enable_i18n", ...)` with
+ * `!0`, bypassing Statsig control entirely.
  *
- * 用法：
- *   node scripts/patch-i18n.js          # 执行 patch
- *   node scripts/patch-i18n.js --check  # 仅检查匹配情况，不修改
+ * Usage:
+ *   node scripts/patch-i18n.js          # apply patch
+ *   node scripts/patch-i18n.js --check  # dry-run check only, no modifications
  */
 const fs = require("fs");
 const path = require("path");
 const { parse } = require("acorn");
+const { walk } = require("./ast-utils");
 
 // ──────────────────────────────────────────────
-//  第 1 层：AST 引擎 — 解析 + 递归遍历
-// ──────────────────────────────────────────────
-
-function walk(node, visitor) {
-  if (!node || typeof node !== "object") return;
-  visitor(node);
-  for (const key of Object.keys(node)) {
-    const child = node[key];
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        if (item && typeof item.type === "string") {
-          walk(item, visitor);
-        }
-      }
-    } else if (child && typeof child.type === "string") {
-      walk(child, visitor);
-    }
-  }
-}
-
-// ──────────────────────────────────────────────
-//  第 2 层：声明式 Patch 规则
+//  Layer 2: Declarative patch rules
 // ──────────────────────────────────────────────
 
 /**
- * 规则数组 — 可扩展
+ * Rules array — extensible
  *
- * 策略：替换整个 ?.get("enable_i18n", ...) 调用为 !0
- * 这样无论 Statsig 服务端返回什么值，i18n 都强制启用
+ * Strategy: replace the entire ?.get("enable_i18n", ...) call with !0
+ * so that i18n is always enabled regardless of what Statsig returns.
  */
 const RULES = [
   {
     id: "enable_i18n",
-    description: "gate 调用 ?.get(\"enable_i18n\", ...) → !0",
+    description: "gate call ?.get(\"enable_i18n\", ...) → !0",
     /**
-     * 匹配条件：
-     *   CallExpression（可能被 ChainExpression 包裹）
-     *   - callee 是 MemberExpression，property.name === "get"
-     *   - arguments[0] 是 Literal "enable_i18n"
-     *   - arguments[1] 存在（任意值）
+     * Match condition:
+     *   CallExpression (possibly wrapped in a ChainExpression)
+     *   - callee is a MemberExpression with property.name === "get"
+     *   - arguments[0] is Literal "enable_i18n"
+     *   - arguments[1] exists (any value)
      *
-     * 替换范围：整个 CallExpression（含 optional chain 包裹）
+     * Replacement range: the entire CallExpression (including optional-chain wrapper)
      *   ?.get("enable_i18n", !1)  →  !0
      *   ?.get("enable_i18n", !0)  →  !0
      */
     match(node, source) {
-      // 匹配 ChainExpression 包裹的 CallExpression
-      // 或直接的 CallExpression
+      // Match CallExpression wrapped in ChainExpression, or a bare CallExpression
       let callNode = null;
-      let replaceNode = null; // 需要替换的最外层节点
+      let replaceNode = null; // outermost node to replace
 
       if (node.type === "ChainExpression" && node.expression?.type === "CallExpression") {
         callNode = node.expression;
-        replaceNode = node; // 替换整个 ChainExpression
+        replaceNode = node; // replace the entire ChainExpression
       } else if (node.type === "CallExpression") {
         callNode = node;
         replaceNode = node;
@@ -90,7 +69,7 @@ const RULES = [
 
       const original = source.slice(replaceNode.start, replaceNode.end);
 
-      // 已经被 patch 过（整个表达式就是 !0）→ 跳过
+      // Already patched (expression is exactly !0) → skip
       if (original === "!0") return null;
 
       return {
@@ -115,24 +94,24 @@ function getPropertyName(memberExpr) {
 }
 
 // ──────────────────────────────────────────────
-//  第 3 层：文件定位 + 外科替换
+//  Layer 3: File location + surgical replacement
 // ──────────────────────────────────────────────
 
 function locateBundle() {
   const assetsDir = path.join(__dirname, "..", "src", "webview", "assets");
   if (!fs.existsSync(assetsDir)) {
-    console.error("❌ 资源目录不存在:", assetsDir);
+    console.error("❌ Assets directory not found:", assetsDir);
     process.exit(1);
   }
 
   const files = fs.readdirSync(assetsDir).filter((f) => /^index-.*\.js$/.test(f));
 
   if (files.length === 0) {
-    console.error("❌ 未找到 index-*.js bundle 文件");
+    console.error("❌ No index-*.js bundle file found");
     process.exit(1);
   }
   if (files.length > 1) {
-    console.error("❌ 发现多个 index-*.js 文件:", files.join(", "));
+    console.error("❌ Multiple index-*.js files found:", files.join(", "));
     process.exit(1);
   }
 
@@ -140,12 +119,12 @@ function locateBundle() {
 }
 
 /**
- * 收集所有规则命中的 patch 点
+ * Collect all patch locations matched by the rules
  */
 function collectPatches(ast, source) {
   const patches = [];
   const details = [];
-  const seen = new Set(); // 防止 ChainExpression 和内部 CallExpression 重复命中
+  const seen = new Set(); // prevent double-matching ChainExpression and inner CallExpression
 
   walk(ast, (node) => {
     for (const rule of RULES) {
@@ -166,7 +145,7 @@ function collectPatches(ast, source) {
 }
 
 /**
- * 扫描所有匹配情况（用于 --check 模式）
+ * Scan all matches (used in --check mode)
  */
 function scanMatches(ast, source) {
   const CONTEXT_CHARS = 40;
@@ -189,17 +168,13 @@ function scanMatches(ast, source) {
         });
       }
     }
-
-    // 也检测已 patch 的位置（原表达式已被替换为 !0）
-    // 这些不会被 rule.match 命中（因为 original === "!0" 会跳过）
-    // 无需额外处理，--check 只展示待 patch 的
   });
 
   return { matches };
 }
 
 /**
- * 统计所有 enable_i18n 相关调用（含已 patch 和未 patch）
+ * Count all enable_i18n references (patched and unpatched)
  */
 function countAllOccurrences(source) {
   let total = 0;
@@ -211,7 +186,7 @@ function countAllOccurrences(source) {
 }
 
 // ──────────────────────────────────────────────
-//  主流程
+//  Main
 // ──────────────────────────────────────────────
 
 function main() {
@@ -219,10 +194,10 @@ function main() {
   const bundlePath = locateBundle();
   const relPath = path.relative(path.join(__dirname, ".."), bundlePath);
 
-  console.log(`📄 目标文件: ${relPath}`);
+  console.log(`📄 Target file: ${relPath}`);
 
   const source = fs.readFileSync(bundlePath, "utf-8");
-  console.log(`📏 文件大小: ${(source.length / 1024 / 1024).toFixed(1)} MB`);
+  console.log(`📏 File size: ${(source.length / 1024 / 1024).toFixed(1)} MB`);
 
   const t0 = Date.now();
   const ast = parse(source, {
@@ -230,47 +205,47 @@ function main() {
     sourceType: "module",
   });
   const parseTime = Date.now() - t0;
-  console.log(`🔍 AST 解析: ${parseTime}ms`);
+  console.log(`🔍 AST parse: ${parseTime}ms`);
 
-  // ── --check 模式 ──
+  // ── --check mode ──
   if (isCheck) {
-    console.log("\n── 匹配检查 (只读) ──\n");
+    console.log("\n── Match check (read-only) ──\n");
     const { matches } = scanMatches(ast, source);
     const totalRefs = countAllOccurrences(source);
 
     if (matches.length === 0) {
-      console.log(`📊 共 ${totalRefs} 处 "enable_i18n" 引用, 0 处待 patch`);
-      console.log("✅ 所有 gate 调用已被替换为 !0");
+      console.log(`📊 ${totalRefs} "enable_i18n" reference(s), 0 to patch`);
+      console.log("✅ All gate calls already replaced with !0");
     } else {
       for (let i = 0; i < matches.length; i++) {
         const m = matches[i];
-        console.log(`  #${i + 1}  [${m.ruleId}]  🔧 待 patch`);
-        console.log(`      位置: ${m.position}`);
-        console.log(`      原始: ${m.original}`);
-        console.log(`      上下文: ...${m.context}...`);
+        console.log(`  #${i + 1}  [${m.ruleId}]  🔧 to patch`);
+        console.log(`      Position: ${m.position}`);
+        console.log(`      Original: ${m.original}`);
+        console.log(`      Context: ...${m.context}...`);
         console.log();
       }
       console.log(
-        `📊 共 ${totalRefs} 处 "enable_i18n" 引用, ${matches.length} 处待 patch`
+        `📊 ${totalRefs} "enable_i18n" reference(s), ${matches.length} to patch`
       );
     }
     return;
   }
 
-  // ── patch 模式 ──
+  // ── patch mode ──
   const { patches, details } = collectPatches(ast, source);
 
   if (patches.length === 0) {
     const totalRefs = countAllOccurrences(source);
     if (totalRefs > 0) {
-      console.log(`ℹ️  i18n 已全部启用 (${totalRefs} 处引用, 0 处待 patch), 无需修改`);
+      console.log(`ℹ️  i18n already fully enabled (${totalRefs} reference(s), 0 to patch), no changes needed`);
     } else {
-      console.warn("⚠️  未找到 enable_i18n feature flag");
+      console.warn("⚠️  enable_i18n feature flag not found");
     }
     return;
   }
 
-  // 按 start 降序排列，避免偏移漂移
+  // Sort descending by start offset to avoid drift
   patches.sort((a, b) => b.start - a.start);
 
   let code = source;
@@ -281,9 +256,9 @@ function main() {
   fs.writeFileSync(bundlePath, code);
 
   for (const d of details) {
-    console.log(`  ✏️  位置 ${d.position}: ${d.change}`);
+    console.log(`  ✏️  Position ${d.position}: ${d.change}`);
   }
-  console.log(`\n✅ i18n 已解锁: ${patches.length} 处 gate 调用 → !0`);
+  console.log(`\n✅ i18n unlocked: ${patches.length} gate call(s) → !0`);
 }
 
 main();

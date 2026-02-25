@@ -1,24 +1,24 @@
 /**
- * 构建后补丁脚本：注入 process polyfill（Windows 兼容性）
+ * Post-build patch: inject process polyfill (Windows compatibility)
  *
- * Codex webview bundle 中存在对 `process` 全局对象的直接访问
- * （如 process.env、process.platform 等），这在浏览器环境中不存在。
- * macOS/Linux 的 Electron 预加载脚本会注入 process，
- * 但 Windows 环境下可能缺失，导致白屏。
+ * The Codex webview bundle accesses the `process` global directly
+ * (e.g. process.env, process.platform), which does not exist in a browser
+ * context. The Electron preload script injects `process` on macOS/Linux,
+ * but on Windows it may be missing, causing a blank screen.
  *
- * 此脚本：
- *   1. 生成 process-polyfill.js 文件
- *   2. 在 index.html 中注入 <script> 标签（bundle 之前加载）
+ * This script:
+ *   1. Generates a process-polyfill.js file
+ *   2. Injects a <script> tag into index.html (loaded before the bundle)
  *
- * 用法：
- *   node scripts/patch-process-polyfill.js          # 执行 patch
- *   node scripts/patch-process-polyfill.js --check  # 仅检查状态，不修改
+ * Usage:
+ *   node scripts/patch-process-polyfill.js          # apply patch
+ *   node scripts/patch-process-polyfill.js --check  # dry-run status check, no modifications
  */
 const fs = require("fs");
 const path = require("path");
 
 // ──────────────────────────────────────────────
-//  Polyfill 内容
+//  Polyfill content
 // ──────────────────────────────────────────────
 
 const POLYFILL_CONTENT = `// Process polyfill for browser/Windows compatibility
@@ -46,7 +46,7 @@ const POLYFILL_FILENAME = "process-polyfill.js";
 const SCRIPT_TAG = `<script src="./assets/${POLYFILL_FILENAME}"></script>`;
 
 // ──────────────────────────────────────────────
-//  文件定位
+//  File location
 // ──────────────────────────────────────────────
 
 function locateFiles() {
@@ -56,7 +56,7 @@ function locateFiles() {
   const polyfillJs = path.join(assetsDir, POLYFILL_FILENAME);
 
   if (!fs.existsSync(indexHtml)) {
-    console.error("❌ index.html 不存在:", indexHtml);
+    console.error("❌ index.html not found:", indexHtml);
     process.exit(1);
   }
 
@@ -64,7 +64,7 @@ function locateFiles() {
 }
 
 // ──────────────────────────────────────────────
-//  检查状态
+//  Status check
 // ──────────────────────────────────────────────
 
 function checkStatus({ indexHtml, polyfillJs }) {
@@ -76,7 +76,7 @@ function checkStatus({ indexHtml, polyfillJs }) {
 }
 
 // ──────────────────────────────────────────────
-//  主流程
+//  Main
 // ──────────────────────────────────────────────
 
 function main() {
@@ -87,43 +87,43 @@ function main() {
 
   const status = checkStatus(files);
 
-  // ── --check 模式 ──
+  // ── --check mode ──
   if (isCheck) {
-    console.log("\n── process polyfill 检查 (只读) ──\n");
-    console.log(`  📄 ${relPolyfill}: ${status.hasPolyfillFile ? "✅ 存在" : "🔧 缺失"}`);
-    console.log(`  📄 ${relHtml} <script> 标签: ${status.hasScriptTag ? "✅ 已注入" : "🔧 缺失"}`);
+    console.log("\n── process polyfill check (read-only) ──\n");
+    console.log(`  📄 ${relPolyfill}: ${status.hasPolyfillFile ? "✅ present" : "🔧 missing"}`);
+    console.log(`  📄 ${relHtml} <script> tag: ${status.hasScriptTag ? "✅ injected" : "🔧 missing"}`);
 
     if (status.hasPolyfillFile && status.hasScriptTag) {
-      console.log("\n✅ process polyfill 已就绪");
+      console.log("\n✅ process polyfill is ready");
     } else {
-      console.log("\n💡 运行 node scripts/patch-process-polyfill.js 以修复");
+      console.log("\n💡 Run node scripts/patch-process-polyfill.js to fix");
     }
     return;
   }
 
-  // ── patch 模式 ──
+  // ── patch mode ──
   let changes = 0;
 
-  // 1. 确保 polyfill 文件存在
+  // 1. Ensure the polyfill file exists
   if (!status.hasPolyfillFile) {
     fs.writeFileSync(files.polyfillJs, POLYFILL_CONTENT);
-    console.log(`  ✏️  创建 ${relPolyfill}`);
+    console.log(`  ✏️  Created ${relPolyfill}`);
     changes++;
   } else {
-    // 检查内容是否需要更新
+    // Check if the content needs updating
     const existing = fs.readFileSync(files.polyfillJs, "utf-8");
     if (existing !== POLYFILL_CONTENT) {
       fs.writeFileSync(files.polyfillJs, POLYFILL_CONTENT);
-      console.log(`  ✏️  更新 ${relPolyfill}`);
+      console.log(`  ✏️  Updated ${relPolyfill}`);
       changes++;
     }
   }
 
-  // 2. 确保 index.html 中有 <script> 标签
+  // 2. Ensure the <script> tag is present in index.html
   if (!status.hasScriptTag) {
     let html = status.htmlContent;
 
-    // 在第一个 <script type="module" ...> 之前插入 polyfill script
+    // Insert polyfill script before the first <script type="module" ...>
     const moduleScriptRegex = /<script\s+type="module"/;
     const match = html.match(moduleScriptRegex);
 
@@ -134,10 +134,10 @@ function main() {
         "\n    " +
         html.slice(match.index);
       fs.writeFileSync(files.indexHtml, html);
-      console.log(`  ✏️  注入 <script> 到 ${relHtml}`);
+      console.log(`  ✏️  Injected <script> into ${relHtml}`);
       changes++;
     } else {
-      // 回退：在 <title> 之后插入
+      // Fallback: insert after </title>
       const titleEnd = html.indexOf("</title>");
       if (titleEnd !== -1) {
         const insertPos = titleEnd + "</title>".length;
@@ -147,19 +147,19 @@ function main() {
           SCRIPT_TAG +
           html.slice(insertPos);
         fs.writeFileSync(files.indexHtml, html);
-        console.log(`  ✏️  注入 <script> 到 ${relHtml} (title 之后)`);
+        console.log(`  ✏️  Injected <script> into ${relHtml} (after </title>)`);
         changes++;
       } else {
-        console.error("❌ 无法定位 index.html 中的注入点");
+        console.error("❌ Could not locate an injection point in index.html");
         process.exit(1);
       }
     }
   }
 
   if (changes === 0) {
-    console.log("ℹ️  process polyfill 已就绪, 无需修改");
+    console.log("ℹ️  process polyfill already ready, no changes needed");
   } else {
-    console.log(`\n✅ process polyfill 已注入: ${changes} 处修改`);
+    console.log(`\n✅ process polyfill injected: ${changes} change(s)`);
   }
 }
 

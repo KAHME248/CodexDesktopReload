@@ -2,6 +2,7 @@
   "name": "codex-rebuild",
   "productName": "Codex",
   "version": "1.0.4",
+  "type": "commonjs",
   "description": "Codex Electron App - Cross-platform Build",
   "main": "src/.vite/build/main.js",
   "scripts": {
@@ -35,25 +36,26 @@
     "rebuild:native": "node scripts/rebuild-native.js"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.10.2",
-    "@electron-forge/maker-deb": "^7.10.2",
-    "@electron-forge/maker-dmg": "^7.10.2",
-    "@electron-forge/maker-rpm": "^7.10.2",
-    "@electron-forge/maker-squirrel": "^7.10.2",
-    "@electron-forge/maker-zip": "^7.10.2",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
-    "@electron-forge/plugin-fuses": "^7.10.2",
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-dmg": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron/fuses": "^1.8.0",
-    "@electron/rebuild": "^3.7.1",
-    "electron": "40.0.0"
+    "@electron/rebuild": "^4.0.3",
+    "acorn": "^8.15.0",
+    "electron": "~40.0.0"
   },
   "dependencies": {
-    "@sentry/electron": "^7.5.0",
-    "@sentry/node": "10.29.0",
+    "@sentry/electron": "^5.0.0",
+    "@sentry/node": "10.40.0",
     "better-sqlite3": "^12.4.6",
     "electron-context-menu": "^4.1.1",
     "electron-squirrel-startup": "^1.0.1",
-    "immer": "^10.1.1",
+    "immer": "^11.1.4",
     "lodash": "^4.17.21",
     "memoizee": "^0.4.15",
     "mime-types": "^2.1.35",
@@ -62,6 +64,9 @@
     "shlex": "^3.0.0",
     "smol-toml": "^1.5.2",
     "zod": "^4.1.13"
+  },
+  "overrides": {
+    "@electron/node-gyp": "10.2.0-electron.2"
   },
   "optionalDependencies": {
     "@cometix/codex": "latest",
