@@ -58,11 +58,6 @@ function resolveCodexCli(platform, arch) {
 const platform = process.platform;
 const arch = os.arch();
 
-if (!TARGET_TRIPLE_MAP[`${platform}-${arch}`]) {
-  console.error(`Unsupported platform/arch: ${platform}/${arch}`);
-  process.exit(1);
-}
-
 const resolved = resolveCodexCli(platform, arch);
 if (!resolved.cliPath) {
   console.error(`CLI not found for ${platform}/${arch}`);
@@ -91,6 +86,10 @@ const child = spawn(electronBin, ['.'], {
   },
 });
 
-child.on('close', (code) => {
-  process.exit(code ?? 0);
+child.on('close', (code, signal) => {
+  if (signal) {
+    console.error(`Child process terminated by signal: ${signal}`);
+    process.exit(1);
+  }
+  process.exit(code ?? 1);
 });
