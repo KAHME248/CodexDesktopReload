@@ -58,6 +58,7 @@ function patchStatus() {
     polyfill:  html.includes('process-polyfill.js'),
     css:       html.includes('/* css-containment-patch */'),
     i18n:      !rendSrc.includes('"enable_i18n"') || rendSrc.includes('"enable_i18n"') && !rendSrc.match(/\.get\s*\(\s*"enable_i18n"/),
+    sunset:    rendSrc.includes('/* app-sunset-patch */'),
   };
 }
 
@@ -110,8 +111,8 @@ function renderHeader() {
   // Patch row
   const tick = (ok) => ok ? c('green', '✔') : c('yellow', '✘');
   const patchRow = line(
-    `Patches: ${tick(patches.copyright)} copyright  ${tick(patches.chromium)} chromium  ` +
-    `${tick(patches.polyfill)} polyfill  ${tick(patches.css)} css  ${tick(patches.i18n)} i18n`
+    `Patches: ${tick(patches.copyright)} copy  ${tick(patches.chromium)} chrom  ` +
+    `${tick(patches.polyfill)} poly  ${tick(patches.css)} css  ${tick(patches.i18n)} i18n  ${tick(patches.sunset)} sunset`
   );
 
   // CLI row
@@ -154,7 +155,7 @@ function pause() {
 
 const MENU = [
   { name: '📥  Update source from DMG      — extract latest Codex.dmg',        value: 'update-src'     },
-  { name: '🔧  Apply patches               — copyright · i18n · polyfill · GPU · CSS', value: 'patch' },
+  { name: '🔧  Apply patches               — copyright · i18n · sunset · polyfill · GPU · CSS', value: 'patch' },
   { name: '🔨  Rebuild native modules       — node-pty + better-sqlite3',       value: 'rebuild-native' },
   { name: '▶️   Start dev                   — launch Electron in dev mode',      value: 'start'          },
   { name: '─────────────────────────────────────────────────',                   value: 'sep1', disabled: true },
@@ -188,6 +189,7 @@ async function handleChoice(choice) {
     case 'patch':
       runNode('scripts/patch-copyright.js')   &&
       runNode('scripts/patch-i18n.js')         &&
+      runNode('scripts/patch-app-sunset.js')   &&
       runNode('scripts/patch-process-polyfill.js') &&
       runNode('scripts/patch-chromium-flags.js')   &&
       runNode('scripts/patch-css-containment.js');

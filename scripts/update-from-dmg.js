@@ -45,6 +45,7 @@ const PATCH_SCRIPTS = [
   "scripts/patch-process-polyfill.js",
   "scripts/patch-chromium-flags.js",
   "scripts/patch-css-containment.js",
+  "scripts/patch-app-sunset.js"
 ];
 
 // ──────────────────────────────────────────────

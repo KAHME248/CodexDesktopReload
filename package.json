@@ -18,7 +18,7 @@
     "menu": "node scripts/dev-menu.js",
     "tui": "node scripts/dev-menu.js",
     "update-src": "node scripts/update-from-dmg.js",
-    "patch": "node scripts/patch-copyright.js && node scripts/patch-i18n.js && node scripts/patch-process-polyfill.js && node scripts/patch-chromium-flags.js && node scripts/patch-css-containment.js",
+    "patch": "node scripts/patch-copyright.js && node scripts/patch-i18n.js && node scripts/patch-app-sunset.js && node scripts/patch-process-polyfill.js && node scripts/patch-chromium-flags.js && node scripts/patch-css-containment.js",
 
     "forge:package": "electron-forge package",
     "forge:make": "npm run patch && electron-forge make",
