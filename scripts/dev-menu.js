@@ -7,13 +7,17 @@
  */
 'use strict';
 const { spawnSync } = require('child_process');
-const select        = require('@inquirer/select').default;
+const inquirerSelect = require('@inquirer/select');
+const select        = inquirerSelect.default;
+const { Separator } = inquirerSelect;
 const confirm       = require('@inquirer/confirm').default;
 const path          = require('path');
 const fs            = require('fs');
+const stringWidthModule = require('string-width');
 
 const ROOT = path.join(__dirname, '..');
 const NPM  = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const stringWidth = stringWidthModule.default ?? stringWidthModule;
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const C = {
@@ -28,6 +32,19 @@ const C = {
   bgBlue: '\x1b[44m',
 };
 const c = (color, text) => `${C[color]}${text}${C.reset}`;
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const visibleWidth = (text = '') => text.replace(ANSI_RE, '').length;
+const padAnsiEnd = (text = '', width = 0) => {
+  const padding = width - visibleWidth(text);
+  return padding > 0 ? `${text}${' '.repeat(padding)}` : text;
+};
+const centerAnsi = (text = '', width = 0) => {
+  const remaining = width - visibleWidth(text);
+  if (remaining <= 0) return text;
+  const left = Math.floor(remaining / 2);
+  const right = remaining - left;
+  return `${' '.repeat(left)}${text}${' '.repeat(right)}`;
+};
 
 // ── Status probes ─────────────────────────────────────────────────────────────
 
@@ -58,6 +75,7 @@ function patchStatus() {
     polyfill:  html.includes('process-polyfill.js'),
     css:       html.includes('/* css-containment-patch */'),
     i18n:      !rendSrc.includes('"enable_i18n"') || rendSrc.includes('"enable_i18n"') && !rendSrc.match(/\.get\s*\(\s*"enable_i18n"/),
+    sunset:    rendSrc.includes('/* app-sunset-patch */'),
   };
 }
 
@@ -89,16 +107,15 @@ function renderHeader() {
   const patches  = patchStatus();
   const cli      = cliStatus(platform, arch);
 
-  const W = 62; // inner width
-  const line  = (txt = '') => `║  ${txt.padEnd(W - 2)}║`;
+  const W = 64; // inner width
+  const line  = (txt = '') => `║  ${padAnsiEnd(txt, W - 4)}  ║`;
   const rule  = `╠${'═'.repeat(W)}╣`;
   const top   = `╔${'═'.repeat(W)}╗`;
   const bot   = `╚${'═'.repeat(W)}╝`;
 
   // Title row
   const title = 'Codex Desktop  —  Dev TUI';
-  const pad   = Math.floor((W - title.length) / 2);
-  const titleRow = `║${' '.repeat(pad)}${c('bold', c('cyan', title))}${' '.repeat(W - pad - title.length)}║`;
+  const titleRow = `║${centerAnsi(c('bold', c('cyan', title)), W)}║`;
 
   // Version row
   const verStr = `v${pkg.version}  |  Build #${pkg.codexBuildNumber}  |  ${pkg.codexBuildFlavor}`;
@@ -110,8 +127,8 @@ function renderHeader() {
   // Patch row
   const tick = (ok) => ok ? c('green', '✔') : c('yellow', '✘');
   const patchRow = line(
-    `Patches: ${tick(patches.copyright)} copyright  ${tick(patches.chromium)} chromium  ` +
-    `${tick(patches.polyfill)} polyfill  ${tick(patches.css)} css  ${tick(patches.i18n)} i18n`
+    `Patches: ${tick(patches.copyright)} copy  ${tick(patches.chromium)} chromium  ` +
+    `${tick(patches.polyfill)} poly  ${tick(patches.css)} css  ${tick(patches.i18n)} i18n  ${tick(patches.sunset)} sunset`
   );
 
   // CLI row
@@ -152,22 +169,30 @@ function pause() {
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
 
+const MENU_LABEL_WIDTH = 29;
+const padMenuLabel = (text, width) => {
+  const padding = width - stringWidth(text);
+  return padding > 0 ? `${text}${' '.repeat(padding)}` : text;
+};
+const menuLabel = (icon, label, description) => `${padMenuLabel(`${icon}  ${label}`, MENU_LABEL_WIDTH)} - ${description}`;
+const MENU_SEPARATOR = '-'.repeat(MENU_LABEL_WIDTH + 3 + 31);
+
 const MENU = [
-  { name: '📥  Update source from DMG      — extract latest Codex.dmg',        value: 'update-src'     },
-  { name: '🔧  Apply patches               — copyright · i18n · polyfill · GPU · CSS', value: 'patch' },
-  { name: '🔨  Rebuild native modules       — node-pty + better-sqlite3',       value: 'rebuild-native' },
-  { name: '▶️   Start dev                   — launch Electron in dev mode',      value: 'start'          },
-  { name: '─────────────────────────────────────────────────',                   value: 'sep1', disabled: true },
-  { name: '🏗️   Build (current platform)    — patch + electron-forge make',      value: 'build-current'  },
-  { name: '🪟  Build Windows x64            — electron-forge make win32/x64',    value: 'build-win'      },
-  { name: '🍎  Build macOS (arm64 + x64)    — electron-forge make darwin',       value: 'build-mac'      },
-  { name: '🐧  Build Linux (x64 + arm64)    — electron-forge make linux',        value: 'build-linux'    },
-  { name: '🌍  Build all platforms          — mac + win + linux',                value: 'build-all'      },
-  { name: '─────────────────────────────────────────────────',                   value: 'sep2', disabled: true },
-  { name: '🔢  Set version                  — update version / build / flavor',  value: 'set-version'    },
-  { name: '📦  Install deps                 — npm install --ignore-scripts',     value: 'install'        },
-  { name: '─────────────────────────────────────────────────',                   value: 'sep3', disabled: true },
-  { name: '🚪  Exit',                                                             value: 'exit'           },
+  { name: menuLabel('📥', 'Update source from DMG', 'extract latest Codex.dmg'), value: 'update-src'     },
+  { name: menuLabel('🔧', 'Apply patches', 'copyright, i18n, sunset, polyfill, GPU, CSS'), value: 'patch' },
+  { name: menuLabel('🔨', 'Rebuild native modules', 'node-pty + better-sqlite3'), value: 'rebuild-native' },
+  { name: menuLabel('▶️', 'Start dev', 'launch Electron in dev mode'),           value: 'start'          },
+  new Separator(MENU_SEPARATOR),
+  { name: menuLabel('🏗️', 'Build (current platform)', 'patch + electron-forge make'), value: 'build-current'  },
+  { name: menuLabel('🪟', 'Build Windows x64', 'electron-forge make win32/x64'), value: 'build-win'      },
+  { name: menuLabel('🍎', 'Build macOS (arm64 + x64)', 'electron-forge make darwin'), value: 'build-mac'      },
+  { name: menuLabel('🐧', 'Build Linux (x64 + arm64)', 'electron-forge make linux'), value: 'build-linux'    },
+  { name: menuLabel('🌍', 'Build all platforms', 'mac + win + linux'),           value: 'build-all'      },
+  new Separator(MENU_SEPARATOR),
+  { name: menuLabel('🔢', 'Set version', 'update version / build / flavor'),     value: 'set-version'    },
+  { name: menuLabel('📦', 'Install deps', 'npm install --ignore-scripts'),       value: 'install'        },
+  new Separator(MENU_SEPARATOR),
+  { name: menuLabel('🚪', 'Exit', 'quit the menu'),                              value: 'exit'           },
 ];
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -188,6 +213,7 @@ async function handleChoice(choice) {
     case 'patch':
       runNode('scripts/patch-copyright.js')   &&
       runNode('scripts/patch-i18n.js')         &&
+      runNode('scripts/patch-app-sunset.js')   &&
       runNode('scripts/patch-process-polyfill.js') &&
       runNode('scripts/patch-chromium-flags.js')   &&
       runNode('scripts/patch-css-containment.js');
